@@ -45,3 +45,13 @@ frames/
 *.webm
 *.avi
 *.mkv
+
+# Workshop runtime outputs and source-transfer archives
+vm-demo/data/
+*.config
+*.log
+*.sqlite
+*.sqlite3
+*.tar
+*.tar.gz
+*.tgz
