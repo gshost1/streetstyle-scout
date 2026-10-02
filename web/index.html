@@ -218,7 +218,7 @@
   </div>
   <div class="top-right">
     <span class="badge scope">VAST workshop footage only</span>
-    <span class="badge mode" id="modeBadge">Demo fixtures</span>
+    <span class="badge mode live" id="modeBadge">Live backend</span>
     <button class="btn ghost" id="savedBtn" title="Style board not built yet — saves are kept for it">Saved · <span id="savedCount">0</span></button>
     <button class="btn" id="debugBtn"><span class="dot" id="statusDot"></span>Status</button>
   </div>
@@ -286,8 +286,8 @@
     <div class="dr-sec">
       <h4>Mode</h4>
       <div class="row">
-        <label><input type="radio" name="mode" value="fixture" checked> Demo fixtures</label>
-        <label><input type="radio" name="mode" value="live"> Live backend</label>
+        <label><input type="radio" name="mode" value="fixture"> Demo fixtures</label>
+        <label><input type="radio" name="mode" value="live" checked> Live backend</label>
       </div>
       <div class="row" style="margin-top:8px">
         <input type="text" id="baseUrl" value="/api" aria-label="Backend base URL">
@@ -320,9 +320,9 @@
       <h4>Credits</h4>
       <p class="credits">
         <b>Frontend:</b> built with Claude Code.<br>
-        <b>Backend &amp; integration:</b> Cursor, on the workshop VM.<br>
+        <b>Backend &amp; integration:</b> Cursor and workshop VM.<br>
         <b>Data:</b> VAST workshop archive (San Francisco, Toronto).<br>
-        <b>Models:</b> YOLO person detection, NVIDIA Cosmos clothing description. Logged with W&amp;B.<br>
+        <b>Models:</b> YOLO person detection, NVIDIA Cosmos clothing description. W&amp;B status is shown above.<br>
         <span class="note">Hosting is listed only once verified. See “CoreWeave hosting” above.</span>
       </p>
     </div>
@@ -623,6 +623,7 @@
   }
   ScoutAPI.onChange(renderStatus);
   renderStatus(ScoutAPI.snapshot());
+  ScoutAPI.refreshStatus().catch(() => {});
 })();
 </script>
 </body>

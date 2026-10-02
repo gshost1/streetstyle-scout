@@ -1,18 +1,20 @@
 """Client for the workshop VAST archive.
 
-Configuration comes only from the environment:
+Configuration comes only from the environment (first name wins):
 
-    VAST_INGRESS_URL   base URL of the workshop ingress (http or https)
-    VAST_USERNAME
-    VAST_PASSWORD
-    VAST_TIMEOUT_S     optional, defaults to 10
+    ingress URL   VAST_INGRESS_URL | INGRESS_URL
+    username      VAST_USERNAME    | USERNAME
+    password      VAST_PASSWORD    | PASSWORD
+    timeout       VAST_TIMEOUT_S   (optional, seconds, default 10)
 
-The ingress URL, credentials, tokens and source URLs are never logged or placed
-in exception messages. Responses are parsed strictly: a candidate without a
-source clip id and timestamp is a schema error, never a defaulted value.
+The ingress URL, credentials, tokens and S3 source URIs are never logged or
+placed in exception messages.
 
-The request/response field names below have not been verified against a live
-workshop deployment; they are collected in one place so they can be corrected.
+Request shapes follow the workshop archive: login returns `access_token`;
+search takes query/top_k/llm_top_n/include_public; explore takes
+scope/limit/offset/location; stream takes `source`, an s3:// URI from Explore.
+Response item fields beyond `access_token` are not verified, so parsing is
+strict: anything without the expected keys is a schema error, never a default.
 """
 from __future__ import annotations
 
@@ -27,7 +29,7 @@ from urllib.parse import urlsplit
 import httpx
 
 log = logging.getLogger(__name__)
-# httpx/httpcore log full request URLs at INFO/DEBUG, which would expose the ingress URL.
+# httpx/httpcore log full request URLs at INFO/DEBUG, which would expose the ingress URL and S3 sources.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
@@ -36,14 +38,9 @@ SEARCH_PATH = "/api/v1/search"
 EXPLORE_PATH = "/api/v1/videos/explore"
 STREAM_PATH = "/api/v1/videos/stream"
 
-TOKEN_KEYS = ("access_token", "token")
-RESULT_LIST_KEYS = ("results", "items", "videos", "data")
-CLIP_ID_KEYS = ("clip_id", "video_id", "filename", "file_name", "name")
-TIMESTAMP_KEYS = ("timestamp_seconds", "start_time", "start", "timestamp")
-DURATION_KEYS = ("duration", "duration_seconds")
-SCORE_KEYS = ("score", "similarity")
-COLLECTION_KEYS = ("collection", "dataset")
-STREAM_CLIP_PARAM = "filename"
+SEARCH_LIST_KEY = "results"
+EXPLORE_LIST_KEYS = ("videos", "items", "results")
+SOURCE_KEY = "source"
 FORWARDED_STREAM_HEADERS = (
     "content-type",
     "content-length",
@@ -51,17 +48,18 @@ FORWARDED_STREAM_HEADERS = (
     "accept-ranges",
 )
 
-ENV_URL = "VAST_INGRESS_URL"
-ENV_USERNAME = "VAST_USERNAME"
-ENV_PASSWORD = "VAST_PASSWORD"
+ENV_URL = ("VAST_INGRESS_URL", "INGRESS_URL")
+ENV_USERNAME = ("VAST_USERNAME", "USERNAME")
+ENV_PASSWORD = ("VAST_PASSWORD", "PASSWORD")
 ENV_TIMEOUT = "VAST_TIMEOUT_S"
+ALL_ENV_NAMES = (*ENV_URL, *ENV_USERNAME, *ENV_PASSWORD, ENV_TIMEOUT)
 
 
 class VastError(Exception):
     """A VAST failure safe to show to API clients.
 
-    `detail` is a short machine-ish reason for `services.vast.detail`;
-    `status_code` is the HTTP status the API should return.
+    `detail` is a short reason for `services.vast.detail`; `status_code` is
+    the HTTP status the API should return.
     """
 
     def __init__(self, message: str, detail: str, status_code: int = 502):
@@ -96,38 +94,42 @@ class VastConfig:
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "VastConfig":
         env = os.environ if env is None else env
-        values = {name: (env.get(name) or "").strip() for name in (ENV_URL, ENV_USERNAME, ENV_PASSWORD)}
-        missing = [name for name, value in values.items() if not value]
+
+        def pick(names: tuple[str, ...]) -> str:
+            return next((env[name].strip() for name in names if (env.get(name) or "").strip()), "")
+
+        url, username, password = pick(ENV_URL), pick(ENV_USERNAME), pick(ENV_PASSWORD)
+        missing = [
+            " or ".join(names)
+            for names, value in ((ENV_URL, url), (ENV_USERNAME, username), (ENV_PASSWORD, password))
+            if not value
+        ]
         if missing:
             raise VastNotConfigured(missing)
-        parts = urlsplit(values[ENV_URL])
+        parts = urlsplit(url)
         if parts.scheme not in ("http", "https") or not parts.netloc:
-            raise VastError(f"{ENV_URL} must be an http(s) URL", "invalid configuration", 503)
+            raise VastError("The VAST ingress URL must be an http(s) URL", "invalid configuration", 503)
         try:
             timeout_s = float(env.get(ENV_TIMEOUT) or 10)
         except ValueError:
             raise VastError(f"{ENV_TIMEOUT} must be a number", "invalid configuration", 503) from None
         if timeout_s <= 0:
             raise VastError(f"{ENV_TIMEOUT} must be positive", "invalid configuration", 503)
-        return cls(values[ENV_URL].rstrip("/"), values[ENV_USERNAME], values[ENV_PASSWORD], timeout_s)
+        return cls(url.rstrip("/"), username, password, timeout_s)
 
 
 @dataclass(frozen=True)
-class VastCandidate:
-    """One search hit, holding only values VAST actually returned."""
+class VastHit:
+    """One search hit. `source` is the archive's s3:// URI; never shown to clients."""
 
+    source: str = field(repr=False)
     clip_id: str
-    timestamp_seconds: float
-    duration: float | None
-    score: float | None
-    collection: str | None
 
 
 @dataclass(frozen=True)
 class VastVideo:
+    source: str = field(repr=False)
     clip_id: str
-    duration: float | None
-    collection: str | None
 
 
 @dataclass
@@ -181,8 +183,8 @@ class VastClient:
             raise VastError("VAST rejected the configured credentials", "authentication failed", 502)
         self._raise_for_status(response, "login")
         body = self._json(response, "login")
-        token = next((body.get(key) for key in TOKEN_KEYS if isinstance(body, dict) and body.get(key)), None)
-        if not isinstance(token, str):
+        token = body.get("access_token") if isinstance(body, dict) else None
+        if not isinstance(token, str) or not token:
             raise VastSchemaError("VAST login response did not include an access token")
         self._token = token
 
@@ -192,22 +194,58 @@ class VastClient:
         self.login()
         return round((perf_counter() - started) * 1000, 1)
 
-    def search(self, query: str, *, limit: int = 20, collection: str | None = None) -> list[VastCandidate]:
-        payload: dict[str, Any] = {"query": query, "limit": limit}
-        if collection:
-            payload["collection"] = collection
-        response = self._authed("POST", SEARCH_PATH, json=payload)
+    def search(self, query: str, *, top_k: int = 15) -> list[VastHit]:
+        response = self._authed(
+            "POST",
+            SEARCH_PATH,
+            json={"query": query, "top_k": top_k, "llm_top_n": 3, "include_public": True},
+        )
         self._raise_for_status(response, "search")
-        return [_parse_candidate(item, index) for index, item in enumerate(_result_list(self._json(response, "search"), "search"))]
+        body = self._json(response, "search")
+        items = body.get(SEARCH_LIST_KEY) if isinstance(body, dict) else body
+        if not isinstance(items, list):
+            raise VastSchemaError("VAST search response did not contain a result list")
+        hits = []
+        for index, item in enumerate(items):
+            source = _source(item, "search", index)
+            hits.append(VastHit(source=source, clip_id=clip_id_from_source(source)))
+        return hits
 
-    def explore(self) -> list[VastVideo]:
-        response = self._authed("GET", EXPLORE_PATH)
+    def explore(self, *, limit: int = 48, offset: int = 0, location: str = "") -> list[VastVideo]:
+        params: dict[str, str | int] = {"scope": "all", "limit": limit, "offset": offset}
+        if location:
+            params["location"] = location
+        response = self._authed("GET", EXPLORE_PATH, params=params)
         self._raise_for_status(response, "explore")
-        return [_parse_video(item, index) for index, item in enumerate(_result_list(self._json(response, "explore"), "explore"))]
+        body = self._json(response, "explore")
+        items = body if isinstance(body, list) else next(
+            (body[key] for key in EXPLORE_LIST_KEYS if isinstance(body, dict) and isinstance(body.get(key), list)),
+            None,
+        )
+        if items is None:
+            raise VastSchemaError("VAST explore response did not contain a video list")
+        videos = []
+        for index, item in enumerate(items):
+            source = _source(item, "explore", index)
+            videos.append(VastVideo(source=source, clip_id=clip_id_from_source(source)))
+        return videos
 
-    def stream(self, clip_id: str, range_header: str | None = None) -> VastStream:
+    def find_source(self, clip_id: str, *, location: str = "", page_size: int = 100, max_pages: int = 20) -> str:
+        """Resolve a clip file name to its s3:// source by paging through Explore."""
+        for page in range(max_pages):
+            videos = self.explore(limit=page_size, offset=page * page_size, location=location)
+            for video in videos:
+                if video.clip_id == clip_id:
+                    return video.source
+            if len(videos) < page_size:
+                break
+        raise VastError("VAST has no clip with that id", "clip not found", 404)
+
+    def stream(self, source: str, range_header: str | None = None) -> VastStream:
+        if not source.startswith("s3://"):
+            raise VastError("VAST video source must be an S3 URI from Explore", "invalid source", 400)
         headers = {"Range": range_header} if range_header else {}
-        response = self._authed("GET", STREAM_PATH, params={STREAM_CLIP_PARAM: clip_id}, headers=headers, stream=True)
+        response = self._authed("GET", STREAM_PATH, params={"source": source}, headers=headers, stream=True)
         if response.status_code not in (200, 206):
             response.read()
             response.close()
@@ -274,67 +312,12 @@ class VastClient:
             raise VastSchemaError(f"VAST {operation} response was not JSON") from None
 
 
-def _result_list(body: Any, operation: str) -> list[Any]:
-    if isinstance(body, list):
-        return body
-    if isinstance(body, dict):
-        for key in RESULT_LIST_KEYS:
-            if isinstance(body.get(key), list):
-                return body[key]
-    raise VastSchemaError(f"VAST {operation} response did not contain a result list")
+def clip_id_from_source(source: str) -> str:
+    return source.rstrip("/").rsplit("/", 1)[-1]
 
 
-def _first(item: dict[str, Any], keys: tuple[str, ...]) -> Any:
-    return next((item[key] for key in keys if item.get(key) is not None), None)
-
-
-def _number(value: Any, label: str, index: int, *, required: bool) -> float | None:
-    if value is None:
-        if required:
-            raise VastSchemaError(f"VAST result {index} is missing {label}")
-        return None
-    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-        raise VastSchemaError(f"VAST result {index} has a non-numeric {label}")
-    try:
-        number = float(value)
-    except ValueError:
-        raise VastSchemaError(f"VAST result {index} has a non-numeric {label}") from None
-    if number < 0:
-        raise VastSchemaError(f"VAST result {index} has a negative {label}")
-    return number
-
-
-def _clip_id(item: Any, index: int) -> str:
-    if not isinstance(item, dict):
-        raise VastSchemaError(f"VAST result {index} is not an object")
-    clip_id = _first(item, CLIP_ID_KEYS)
-    if not isinstance(clip_id, str) or not clip_id.strip():
-        raise VastSchemaError(f"VAST result {index} is missing a source clip id")
-    return clip_id.strip()
-
-
-def _collection(item: dict[str, Any]) -> str | None:
-    value = _first(item, COLLECTION_KEYS)
-    return value if isinstance(value, str) and value else None
-
-
-def _parse_candidate(item: Any, index: int) -> VastCandidate:
-    clip_id = _clip_id(item, index)
-    duration = _number(_first(item, DURATION_KEYS), "duration", index, required=False)
-    if duration == 0:
-        duration = None
-    return VastCandidate(
-        clip_id=clip_id,
-        timestamp_seconds=_number(_first(item, TIMESTAMP_KEYS), "timestamp", index, required=True),
-        duration=duration,
-        score=_number(_first(item, SCORE_KEYS), "score", index, required=False),
-        collection=_collection(item),
-    )
-
-
-def _parse_video(item: Any, index: int) -> VastVideo:
-    return VastVideo(
-        clip_id=_clip_id(item, index),
-        duration=_number(_first(item, DURATION_KEYS), "duration", index, required=False),
-        collection=_collection(item),
-    )
+def _source(item: Any, operation: str, index: int) -> str:
+    value = item.get(SOURCE_KEY) if isinstance(item, dict) else None
+    if not isinstance(value, str) or not value.startswith("s3://") or not clip_id_from_source(value):
+        raise VastSchemaError(f"VAST {operation} item {index} has no s3:// {SOURCE_KEY}")
+    return value

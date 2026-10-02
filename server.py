@@ -1,7 +1,8 @@
 """StreetStyle Scout local API.
 
-The server can search a local JSON catalog containing verified VAST moments. It
-never imports the invented browser fixtures and never claims an external service
+When VAST is configured, search queries the workshop archive live. Otherwise it
+can search a local JSON catalog containing verified VAST moments. It never
+imports the invented browser fixtures and never claims an external service
 responded when it did not.
 """
 from __future__ import annotations
@@ -11,14 +12,17 @@ import os
 import re
 from functools import lru_cache
 from pathlib import Path
+from threading import Lock
 from time import perf_counter
 from typing import Literal
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from backend.vast import VastClient, VastConfig, VastError, VastNotConfigured
 
 app = FastAPI(title="StreetStyle Scout")
 ROOT = Path(__file__).parent
@@ -180,18 +184,76 @@ def search_catalog(moments: tuple[Moment, ...], request: SearchRequest) -> list[
     return [moment for _, moment in sorted(ranked, key=lambda item: (-item[0], item[1].id))]
 
 
-def service_error(message: str, detail: str, status_code: int = 503) -> JSONResponse:
-    services = not_connected_services()
-    services["vast"] = {"state": "error", "detail": detail}
+def service_error(
+    message: str,
+    detail: str,
+    status_code: int = 503,
+    *,
+    service: str = "vast",
+    services: dict[str, dict] | None = None,
+) -> JSONResponse:
+    if services is None:
+        services = not_connected_services()
+        services[service] = {"state": "error", "detail": detail}
     return JSONResponse(
         status_code=status_code,
         content={
             "error": "service_error",
-            "service": "vast",
+            "service": service,
             "message": message,
             "services": services,
         },
     )
+
+
+_vast_lock = Lock()
+_vast_clients: dict[VastConfig, VastClient] = {}
+_clip_sources: dict[str, str] = {}
+
+
+def vast_client() -> VastClient:
+    """Shared client for the current environment; raises VastNotConfigured."""
+    config = VastConfig.from_env()
+    with _vast_lock:
+        client = _vast_clients.get(config)
+        if client is None:
+            client = _vast_clients[config] = VastClient(config)
+        return client
+
+
+def vast_configured() -> bool:
+    try:
+        VastConfig.from_env()
+    except VastNotConfigured:
+        return False
+    except VastError:
+        return True
+    return True
+
+
+def live_search(body: SearchRequest) -> JSONResponse:
+    services = not_connected_services()
+    try:
+        client = vast_client()
+        vast_started = perf_counter()
+        hits = client.search(body.query)
+    except VastError as exc:
+        return service_error(exc.message, exc.detail, exc.status_code)
+    services["vast"] = {
+        "state": "ok",
+        "ms": round((perf_counter() - vast_started) * 1000),
+        "detail": f"{len(hits)} candidate clip{'' if len(hits) == 1 else 's'}",
+    }
+    with _vast_lock:
+        _clip_sources.update({hit.clip_id: hit.source for hit in hits})
+    services["cosmos"] = {"state": "not_connected", "detail": "Cosmos analysis is not wired into this backend"}
+    message = (
+        f"VAST returned {len(hits)} candidate clips, but Moments require Cosmos analysis, "
+        "which is not connected; no results were produced"
+        if hits
+        else "VAST returned no candidate clips; Cosmos analysis is not connected"
+    )
+    return service_error(message, "not connected", 503, service="cosmos", services=services)
 
 
 @app.exception_handler(RequestValidationError)
@@ -205,6 +267,13 @@ async def validation_error(_request: Request, exc: RequestValidationError) -> JS
 
 @app.get("/api/status")
 def status() -> dict:
+    if vast_configured():
+        services = not_connected_services()
+        try:
+            services["vast"] = {"state": "ok", "ms": round(vast_client().health()), "detail": "login succeeded"}
+        except VastError as exc:
+            services["vast"] = {"state": "error", "detail": exc.detail}
+        return {"services": services}
     try:
         catalog_loaded = current_catalog() is not None
     except (OSError, json.JSONDecodeError, ValueError) as exc:
@@ -216,6 +285,8 @@ def status() -> dict:
 
 @app.post("/api/search")
 def search(body: SearchRequest):
+    if vast_configured():
+        return live_search(body)
     started = perf_counter()
     try:
         moments = current_catalog()
@@ -223,8 +294,9 @@ def search(body: SearchRequest):
         return service_error("The local moment catalog is invalid", str(exc), 500)
     if moments is None:
         return service_error(
-            "Search is not connected to VAST and no local catalog is configured",
-            "not connected",
+            "Search is not connected: set INGRESS_URL, USERNAME and PASSWORD for VAST, "
+            "or SCOUT_CATALOG_PATH for a local verified catalog",
+            "not configured",
         )
     results = search_catalog(moments, body)
     return {
@@ -259,7 +331,42 @@ def moment(moment_id: str):
     )
 
 
-for route, directory in (("/frames", ROOT / "frames"), ("/clips", ROOT / "clips")):
-    if directory.is_dir():
-        app.mount(route, StaticFiles(directory=directory), name=route.removeprefix("/"))
+CLIPS = ROOT / "clips"
+CLIP_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*\.mp4")
+
+
+@app.get("/clips/{clip_id}")
+def clip(clip_id: str, request: Request):
+    if not CLIP_ID_RE.fullmatch(clip_id):
+        return JSONResponse(status_code=404, content={"error": "not_found", "message": f"No clip {clip_id}"})
+    local = CLIPS / clip_id
+    if local.is_file():
+        return FileResponse(local, media_type="video/mp4")
+    try:
+        client = vast_client()
+        with _vast_lock:
+            source = _clip_sources.get(clip_id)
+        if source is None:
+            source = client.find_source(clip_id)
+            with _vast_lock:
+                _clip_sources[clip_id] = source
+        upstream = client.stream(source, request.headers.get("range"))
+    except VastNotConfigured as exc:
+        return service_error(exc.message, exc.detail, 503)
+    except VastError as exc:
+        if exc.status_code == 404:
+            return JSONResponse(status_code=404, content={"error": "not_found", "message": f"No clip {clip_id}"})
+        return service_error(exc.message, exc.detail, exc.status_code)
+    headers = {"accept-ranges": "bytes", **upstream.headers}
+    media_type = headers.pop("content-type", "video/mp4")
+    return StreamingResponse(
+        upstream.iter_bytes(),
+        status_code=upstream.status_code,
+        headers=headers,
+        media_type=media_type,
+    )
+
+
+if (ROOT / "frames").is_dir():
+    app.mount("/frames", StaticFiles(directory=ROOT / "frames"), name="frames")
 app.mount("/", StaticFiles(directory=WEB, html=True), name="web")

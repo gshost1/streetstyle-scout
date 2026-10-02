@@ -20,7 +20,7 @@ window.ScoutAPI = (() => {
   };
 
   const state = {
-    mode: "fixture", // "fixture" | "live"
+    mode: "live", // "fixture" | "live"
     baseUrl: "/api",
     services: freshServices(),
     sim: { slow: false, error: false, empty: false }, // fixture-only
@@ -60,9 +60,11 @@ window.ScoutAPI = (() => {
     if (!reported || typeof reported !== "object") return;
     for (const k of SERVICES) {
       const r = reported[k];
-      if (!r || !["ok", "error", "not_connected"].includes(r.state)) continue;
+      if (!r) continue;
+      const reportedState = r.state || (typeof r.ok === "boolean" ? (r.ok ? "ok" : "error") : null);
+      if (!["ok", "error", "not_connected"].includes(reportedState)) continue;
       state.services[k] = {
-        state: r.state,
+        state: reportedState,
         detail: r.detail || (r.state === "ok" ? "Responded" : ""),
         ms: r.ms,
         lastCall: Date.now(),
