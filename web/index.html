@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>StreetStyle Scout</title>
+<style>
+  :root {
+    --bg: #141518;
+    --surface: #1b1d22;
+    --surface-2: #22252b;
+    --border: #2b2f37;
+    --text: #e9eaee;
+    --muted: #9ba0aa;
+    --faint: #6b7078;
+    --accent: #c8ff3b;
+    --accent-ink: #141518;
+    --amber: #f5b944;
+    --red: #ff6b6b;
+    --radius: 12px;
+    --font: -apple-system, "Inter", "Segoe UI", system-ui, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font); font-size: 15px; line-height: 1.45; }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  a { color: var(--accent); }
+  h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+  .mono { font-family: var(--mono); font-size: 12.5px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- header ---------- */
+  .top {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    padding: 14px 28px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: rgba(20,21,24,.92); backdrop-filter: blur(10px); z-index: 20;
+  }
+  .brand { display: flex; align-items: baseline; gap: 12px; }
+  .brand h1 { font-size: 18px; }
+  .brand h1 span { color: var(--accent); }
+  .brand .sub { color: var(--muted); font-size: 13px; }
+  .top-right { display: flex; align-items: center; gap: 10px; }
+  .badge {
+    font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+    padding: 5px 9px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted);
+  }
+  .badge.scope { color: var(--text); }
+  .badge.mode { color: var(--amber); border-color: rgba(245,185,68,.4); background: rgba(245,185,68,.08); }
+  .badge.mode.live { color: var(--accent); border-color: rgba(200,255,59,.4); background: rgba(200,255,59,.08); }
+  .btn {
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 9px;
+    padding: 7px 12px; font-size: 13.5px; font-weight: 500;
+  }
+  .btn:hover { border-color: #3a3f49; }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.05); }
+  .btn.ghost { background: transparent; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .btn .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--amber); margin-right: 7px; vertical-align: 1px; }
+  .btn .dot.ok { background: var(--accent); }
+
+  /* ---------- search (hero) ---------- */
+  .search { padding: 44px 28px 22px; max-width: 1480px; margin: 0 auto; }
+  .search-row { display: flex; gap: 10px; align-items: stretch; }
+  .search-box {
+    flex: 1; display: flex; align-items: center; gap: 14px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 0 20px;
+  }
+  .search-box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(200,255,59,.12); }
+  .search-box svg { flex: none; color: var(--muted); }
+  .search-box input {
+    flex: 1; background: none; border: 0; outline: 0; padding: 20px 0; font-size: 22px; min-width: 0; letter-spacing: -0.01em;
+  }
+  .search-box input::placeholder { color: var(--faint); }
+  .seg { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 4px; }
+  .seg button {
+    background: none; border: 0; border-radius: 12px; padding: 0 16px; color: var(--muted); font-weight: 500; font-size: 14px;
+  }
+  .seg button[aria-checked="true"] { background: var(--surface-2); color: var(--text); }
+  .search-row .btn.primary { padding: 0 24px; border-radius: 16px; font-size: 15px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; align-items: center; }
+  .chips .lbl { color: var(--faint); font-size: 13px; margin-right: 4px; }
+  .chip {
+    background: transparent; border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px;
+    font-size: 13.5px; color: var(--muted);
+  }
+  .chip:hover { color: var(--text); border-color: #3a3f49; }
+  .scope-note { color: var(--faint); font-size: 13px; margin-top: 12px; }
+  .scope-note b { color: var(--muted); font-weight: 500; }
+
+  /* ---------- layout ---------- */
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 560px; gap: 24px; padding: 0 28px 48px; max-width: 1480px; margin: 0 auto; }
+  @media (max-width: 1180px) { .layout { grid-template-columns: 1fr; } .evidence { position: static !important; max-height: none !important; } }
+
+  /* ---------- results: image-first cards ---------- */
+  .results-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+  .results-head h2 { font-size: 15px; color: var(--muted); font-weight: 500; }
+  .results-head .meta { color: var(--faint); font-size: 13px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+  .card {
+    position: relative; aspect-ratio: 16/9; background: #0f1012; border: 1px solid var(--border); border-radius: var(--radius);
+    overflow: hidden; padding: 0; display: block; width: 100%; text-align: left; transition: border-color .12s, transform .12s;
+  }
+  .card:hover { border-color: #3a3f49; transform: translateY(-1px); }
+  .card.selected { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(200,255,59,.18); }
+  .card .frame { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .card .frame img { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; }   /* native size, scaled down only */
+  .card .frame img.placeholder { width: 100%; height: 100%; object-fit: cover; }
+  .card .src, .card .read, .card .ts { z-index: 2; }
+  .card .src { position: absolute; left: 10px; top: 10px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; background: rgba(0,0,0,.6); padding: 3px 7px; border-radius: 6px; color: var(--muted); }
+  .card .read { position: absolute; right: 10px; top: 10px; }
+  .card .ts { position: absolute; left: 10px; bottom: 10px; background: rgba(0,0,0,.7); padding: 3px 7px; border-radius: 6px; font-family: var(--mono); font-size: 12px; }
+  .card .summary {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 28px 10px 10px 92px; font-size: 12.5px; color: var(--muted);
+    background: linear-gradient(to top, rgba(0,0,0,.75), rgba(0,0,0,0)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: right;
+  }
+  .card .detail {
+    position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; padding: 12px 12px 36px;
+    background: linear-gradient(to top, rgba(10,11,13,.94) 0%, rgba(10,11,13,.75) 55%, rgba(10,11,13,.15) 100%);
+    opacity: 0; transition: opacity .14s; pointer-events: none;
+  }
+  .card:hover .detail, .card:focus-visible .detail, .card.selected .detail { opacity: 1; }
+  .card:hover .summary, .card:focus-visible .summary, .card.selected .summary { opacity: 0; }
+  .card.unreadable .frame img { filter: brightness(.45) saturate(0); }
+  .card .veil { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; font-weight: 500; text-align: center; padding: 20px; }
+  .card .clip { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .tags { display: flex; flex-wrap: wrap; gap: 6px; }
+  .tag { font-size: 12.5px; padding: 3px 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--border); color: var(--text); }
+  .tag.k-color { border-color: rgba(200,255,59,.3); }
+  .tag.unc { border-style: dashed; color: var(--muted); background: transparent; }
+  .tag .k { color: var(--faint); font-size: 11px; margin-right: 4px; text-transform: uppercase; letter-spacing: .04em; }
+  .why { color: var(--muted); font-size: 13px; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; background: rgba(0,0,0,.65); }
+  .pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+  .pill.clear { color: var(--accent); }
+  .pill.partial { color: var(--amber); }
+  .pill.unreadable { color: var(--muted); }
+
+  /* states */
+  .state { border: 1px dashed var(--border); border-radius: var(--radius); padding: 48px 24px; text-align: center; color: var(--muted); }
+  .state h3 { color: var(--text); font-size: 16px; margin-bottom: 6px; }
+  .state p { margin: 0 0 14px; max-width: 460px; margin-inline: auto; }
+  .state.error { border-color: rgba(255,107,107,.4); background: rgba(255,107,107,.05); }
+  .state.error h3 { color: var(--red); }
+  .sk { background: linear-gradient(90deg, var(--surface-2) 25%, #2a2e36 50%, var(--surface-2) 75%); background-size: 200% 100%; animation: sh 1.2s infinite; }
+  @keyframes sh { from { background-position: 200% 0 } to { background-position: -200% 0 } }
+  .sk.card { border-color: transparent; }
+
+  /* ---------- evidence (lightbox scale) ---------- */
+  .evidence { position: sticky; top: 76px; align-self: start; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; max-height: calc(100vh - 100px); display: flex; flex-direction: column; }
+  .ev-empty { padding: 60px 28px; text-align: center; color: var(--muted); }
+  .ev-empty h3 { color: var(--text); font-size: 15px; margin-bottom: 6px; }
+  .player { position: relative; aspect-ratio: 16/9; background: #0a0b0d; display: flex; align-items: center; justify-content: center; }
+  .player .wrap { position: relative; display: inline-block; max-width: 100%; max-height: 100%; line-height: 0; }
+  .player .wrap img, .player .wrap video { max-width: 100%; max-height: 100%; width: auto; height: auto; display: block; }   /* native size, scaled down only */
+  .player .wrap img.placeholder { width: 100%; }
+  .player .bbox { position: absolute; border: 2px solid var(--accent); border-radius: 3px; box-shadow: 0 0 0 1px rgba(0,0,0,.6); }
+  .player .bbox::after { content: "person"; position: absolute; left: -2px; top: -20px; background: var(--accent); color: var(--accent-ink); font-size: 10.5px; font-weight: 700; padding: 2px 6px; border-radius: 4px 4px 0 0; letter-spacing: .04em; text-transform: uppercase; line-height: 1.3; }
+  .player .stamp { position: absolute; left: 10px; top: 10px; font-size: 11px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; background: rgba(245,185,68,.15); border: 1px solid rgba(245,185,68,.5); color: var(--amber); padding: 3px 7px; border-radius: 6px; }
+  .player .ts { position: absolute; left: 10px; bottom: 10px; background: rgba(0,0,0,.7); padding: 3px 7px; border-radius: 6px; font-family: var(--mono); font-size: 12px; }
+  .player .veil { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(15,16,18,.55); color: var(--text); font-weight: 500; text-align: center; padding: 20px; }
+  .timeline { padding: 12px 16px 6px; border-bottom: 1px solid var(--border); }
+  .tl-bar { position: relative; height: 6px; background: var(--surface-2); border-radius: 3px; margin: 10px 0 4px; }
+  .tl-bar .mark { position: absolute; top: -5px; width: 4px; height: 16px; margin-left: -2px; background: var(--faint); border-radius: 2px; border: 0; padding: 0; cursor: pointer; }
+  .tl-bar .mark:hover { background: var(--muted); }
+  .tl-bar .mark.cur { background: var(--accent); }
+  .tl-meta { display: flex; justify-content: space-between; color: var(--faint); font-size: 12px; }
+  .ev-body { padding: 14px 16px 16px; overflow: auto; display: flex; flex-direction: column; gap: 16px; }
+  .ev-head { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
+  .ev-head h3 { font-size: 16px; }
+  .ev-head .sub { color: var(--muted); font-size: 13px; }
+  .ev-sec h4 { margin: 0 0 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+  .ev-sec h4 .src { font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--faint); }
+  .desc { margin: 0; color: var(--text); font-size: 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+  .toggle input { accent-color: var(--accent); }
+  .ev-actions { display: flex; gap: 8px; align-items: center; margin-top: 4px; }
+  .note { color: var(--faint); font-size: 12px; }
+  .unc-note { color: var(--faint); font-size: 12px; display: block; margin-top: 2px; }
+
+  /* ---------- footer ---------- */
+  footer { border-top: 1px solid var(--border); padding: 18px 28px; color: var(--faint); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 8px 24px; justify-content: space-between; }
+
+  /* ---------- drawer ---------- */
+  .drawer { position: fixed; top: 0; right: 0; height: 100%; width: 420px; max-width: 100vw; background: var(--surface); border-left: 1px solid var(--border); transform: translateX(100%); transition: transform .18s ease; z-index: 30; display: flex; flex-direction: column; }
+  .drawer.open { transform: none; }
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 29; display: none; }
+  .scrim.open { display: block; }
+  .dr-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .dr-head h2 { font-size: 15px; }
+  .dr-body { padding: 16px 18px 24px; overflow: auto; display: flex; flex-direction: column; gap: 20px; }
+  .dr-sec h4 { margin: 0 0 8px; font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .svc { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 9px 0; border-bottom: 1px solid var(--border); align-items: center; }
+  .svc:last-child { border-bottom: 0; }
+  .svc .name { font-weight: 500; font-size: 13.5px; }
+  .svc .detail { grid-column: 1 / -1; color: var(--faint); font-size: 12px; }
+  .st { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); white-space: nowrap; }
+  .st.ok { color: var(--accent); border-color: rgba(200,255,59,.4); }
+  .st.error { color: var(--red); border-color: rgba(255,107,107,.4); }
+  .st.unverified { color: var(--amber); border-color: rgba(245,185,68,.4); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row label { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; }
+  .row input[type=text] { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font-size: 13px; width: 100%; }
+  .log { font-family: var(--mono); font-size: 11.5px; color: var(--muted); display: flex; flex-direction: column; gap: 5px; }
+  .log .ok { color: var(--accent); }
+  .log .bad { color: var(--red); }
+  .credits { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .credits b { color: var(--text); font-weight: 500; }
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand">
+    <h1>StreetStyle <span>Scout</span></h1>
+    <span class="sub">video agent · visible clothing search</span>
+  </div>
+  <div class="top-right">
+    <span class="badge scope">VAST workshop footage only</span>
+    <span class="badge mode" id="modeBadge">Demo fixtures</span>
+    <button class="btn ghost" id="savedBtn" title="Style board not built yet — saves are kept for it">Saved · <span id="savedCount">0</span></button>
+    <button class="btn" id="debugBtn"><span class="dot" id="statusDot"></span>Status</button>
+  </div>
+</header>
+
+<section class="search">
+  <form class="search-row" id="searchForm" autocomplete="off">
+    <label class="search-box">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" type="text" placeholder="Find bright jackets and backpacks" aria-label="Search visible clothing">
+    </label>
+    <div class="seg" role="radiogroup" aria-label="Dataset" id="dataset">
+      <button type="button" role="radio" aria-checked="true" data-v="sf">San Francisco</button>
+      <button type="button" role="radio" aria-checked="false" data-v="to" title="Toronto footage: pedestrians are mostly distant, so clothing detail is limited">Toronto</button>
+      <button type="button" role="radio" aria-checked="false" data-v="both">Both</button>
+    </div>
+    <button class="btn primary" type="submit" id="searchBtn">Search</button>
+  </form>
+  <div class="chips" id="chips">
+    <span class="lbl">Try:</span>
+    <button type="button" class="chip">bright jackets and backpacks</button>
+    <button type="button" class="chip">red jacket</button>
+    <button type="button" class="chip">rain gear</button>
+    <button type="button" class="chip">green vest with helmet</button>
+    <button type="button" class="chip">tote bag</button>
+    <button type="button" class="chip">purple raincoat</button>
+  </div>
+  <p class="scope-note">Searches <b>visible clothing only</b> in the VAST workshop archive. San Francisco is the primary set; Toronto pedestrians are mostly distant, so detail there is limited. Example chips are suggestions, not proof of matching footage. No face recognition, identity tracking, brand guesses or demographic labels.</p>
+</section>
+
+<main class="layout">
+  <section class="results">
+    <div class="results-head">
+      <h2 id="resultsTitle">Results</h2>
+      <span class="meta" id="resultsMeta"></span>
+    </div>
+    <div id="resultsBody">
+      <div class="state">
+        <h3>Search the archive</h3>
+        <p>Describe clothing you want to find: garment type, color, accessories. Pick a city or search both.</p>
+      </div>
+    </div>
+  </section>
+
+  <aside class="evidence" id="evidence">
+    <div class="ev-empty">
+      <h3>No moment selected</h3>
+      Click a result to open it here with its timestamp, detection box and clothing description.
+    </div>
+  </aside>
+</main>
+
+<footer>
+  <span>StreetStyle Scout describes visible clothing in archived workshop footage. It does not identify people.</span>
+  <span>Counts anywhere in this tool are saved observations, not unique people or citywide trends.</span>
+</footer>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Sponsor and debug status">
+  <div class="dr-head">
+    <h2>Services &amp; debug</h2>
+    <button class="btn ghost" id="drawerClose">Close</button>
+  </div>
+  <div class="dr-body">
+    <div class="dr-sec">
+      <h4>Mode</h4>
+      <div class="row">
+        <label><input type="radio" name="mode" value="fixture" checked> Demo fixtures</label>
+        <label><input type="radio" name="mode" value="live"> Live backend</label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="baseUrl" value="/api" aria-label="Backend base URL">
+        <button class="btn" id="refreshStatus" type="button">Check backend</button>
+      </div>
+      <p class="note" id="modeNote">Fixture mode never contacts a sponsor service. Nothing below will show “ok” until live calls succeed.</p>
+    </div>
+
+    <div class="dr-sec">
+      <h4>Pipeline status</h4>
+      <div id="services"></div>
+      <p class="note">Status reflects successful calls made from this page only. Nothing is assumed from configuration.</p>
+    </div>
+
+    <div class="dr-sec" id="simSec">
+      <h4>Simulate (fixture mode only)</h4>
+      <div class="row">
+        <label><input type="checkbox" data-sim="slow"> Slow search (2.8 s)</label>
+        <label><input type="checkbox" data-sim="error"> Service error on next search</label>
+        <label><input type="checkbox" data-sim="empty"> Empty results</label>
+      </div>
+    </div>
+
+    <div class="dr-sec">
+      <h4>Request log</h4>
+      <div class="log" id="log"><span>No requests yet.</span></div>
+    </div>
+
+    <div class="dr-sec">
+      <h4>Credits</h4>
+      <p class="credits">
+        <b>Frontend:</b> built with Claude Code.<br>
+        <b>Backend &amp; integration:</b> Cursor, on the workshop VM.<br>
+        <b>Data:</b> VAST workshop archive (San Francisco, Toronto).<br>
+        <b>Models:</b> YOLO person detection, NVIDIA Cosmos clothing description. Logged with W&amp;B.<br>
+        <span class="note">Hosting is listed only once verified. See “CoreWeave hosting” above.</span>
+      </p>
+    </div>
+  </div>
+</aside>
+
+<script src="fixtures.js"></script>
+<script src="api.js"></script>
+<script>
+(() => {
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  const ui = {
+    dataset: "sf",
+    results: [],
+    selectedId: null,
+    showBox: true,
+    saved: new Set(),
+    lastQuery: "",
+  };
+  try { JSON.parse(localStorage.getItem("scout.saved") || "[]").forEach((id) => ui.saved.add(id)); } catch (_) {}
+
+  // ---------- helpers ----------
+  const fmtTs = (s) => {
+    const m = Math.floor(s / 60), sec = (s % 60).toFixed(1).padStart(4, "0");
+    return `${String(m).padStart(2, "0")}:${sec}`;
+  };
+  const READ = { clear: "Clear", partial: "Partly readable", unreadable: "Unreadable" };
+
+  // Neutral placeholder frame. No imagery of people — a labeled slate.
+  function placeholder(m) {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2a2d35"/><stop offset="1" stop-color="#17181c"/></linearGradient>
+      <pattern id="p" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity=".05"/></pattern></defs>
+      <rect width="640" height="360" fill="url(#g)"/><rect width="640" height="360" fill="url(#p)"/>
+      <text x="320" y="166" text-anchor="middle" font-family="-apple-system,Inter,system-ui,sans-serif" font-size="22" font-weight="600" fill="#f5b944" letter-spacing="3">DEMO FIXTURE</text>
+      <text x="320" y="196" text-anchor="middle" font-family="-apple-system,Inter,system-ui,sans-serif" font-size="14" fill="#9ba0aa">${esc(m.collection)} · ${esc(m.clip_id)} · ${fmtTs(m.timestamp_seconds)}</text>
+      <text x="320" y="220" text-anchor="middle" font-family="-apple-system,Inter,system-ui,sans-serif" font-size="12" fill="#6b7078">placeholder — verified VAST frame pending</text>
+    </svg>`;
+    return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  }
+  const frameImg = (m, cls = "") => m.frame_url
+    ? `<img class="${cls}" src="${esc(m.frame_url)}" alt="">`
+    : `<img class="placeholder ${cls}" src="${placeholder(m)}" alt="">`;
+
+  function tagsHTML(list, uncertain = false) {
+    return list.map((d) => `<span class="tag ${uncertain ? "unc" : "k-" + esc(d.kind)}"><span class="k">${esc(d.kind)}</span>${esc(d.value)}</span>`).join("");
+  }
+
+  const datasetLabel = () => ({ sf: "San Francisco", to: "Toronto", both: "San Francisco + Toronto" })[ui.dataset];
+
+  // ---------- results ----------
+  function renderResults() {
+    const body = $("#resultsBody");
+    const meta = $("#resultsMeta");
+    if (!ui.results.length) {
+      meta.textContent = "";
+      body.innerHTML = `<div class="state">
+        <h3>No matching moments</h3>
+        <p>Nothing in the ${datasetLabel()} footage matched “${esc(ui.lastQuery)}”. Try a simpler description — one garment, one color — or search both cities.</p>
+        <button class="btn" id="retryBoth">Search both cities</button>
+      </div>`;
+      $("#retryBoth")?.addEventListener("click", () => { setDataset("both"); runSearch(ui.lastQuery); });
+      return;
+    }
+    const unreadable = ui.results.filter((m) => m.readability === "unreadable").length;
+    meta.textContent = `${ui.results.length} moment${ui.results.length === 1 ? "" : "s"} · ${datasetLabel()}${unreadable ? ` · ${unreadable} unreadable` : ""}`;
+    body.innerHTML = `<div class="grid">${ui.results.map(cardHTML).join("")}</div>`;
+    $$(".card", body).forEach((el) => el.addEventListener("click", () => selectMoment(el.dataset.id)));
+  }
+
+  function cardHTML(m) {
+    const unread = m.readability === "unreadable";
+    const summary = m.observed.map((d) => d.value).join(" · ") || (m.uncertain.length ? "details uncertain" : "no readable details");
+    return `<button class="card ${unread ? "unreadable" : ""} ${m.id === ui.selectedId ? "selected" : ""}" data-id="${esc(m.id)}" aria-label="Open moment at ${fmtTs(m.timestamp_seconds)} in ${esc(m.collection)}: ${esc(summary)}">
+      <div class="frame">${frameImg(m)}</div>
+      ${unread ? `<div class="veil">Clothing details not readable in this footage</div>` : ""}
+      <span class="src">${esc(m.collection)}</span>
+      <span class="read pill ${esc(m.readability)}">${READ[m.readability] || esc(m.readability)}</span>
+      <span class="ts">${fmtTs(m.timestamp_seconds)}</span>
+      <div class="summary">${esc(summary)}</div>
+      <div class="detail">
+        <div class="tags">
+          ${tagsHTML(m.observed)}
+          ${tagsHTML(m.uncertain, true)}
+          ${!m.observed.length && !m.uncertain.length ? `<span class="tag unc">no readable details</span>` : ""}
+        </div>
+        ${m.match_reason ? `<div class="why">${esc(m.match_reason)}</div>` : ""}
+        <div class="clip">${esc(m.clip_id)}</div>
+      </div>
+    </button>`;
+  }
+
+  function renderSkeleton() {
+    $("#resultsMeta").textContent = "Searching…";
+    $("#resultsBody").innerHTML = `<div class="grid">${Array.from({ length: 6 }, () => `<div class="card sk"></div>`).join("")}</div>`;
+  }
+
+  function renderError(err) {
+    $("#resultsMeta").textContent = "";
+    const svc = err.service ? ScoutAPI.snapshot().labels[err.service] || err.service : "A service";
+    $("#resultsBody").innerHTML = `<div class="state error">
+      <h3>${esc(svc)} didn’t respond</h3>
+      <p>${esc(err.message || "Unknown error")}. Results may be incomplete. Nothing was cached from this request.</p>
+      <div class="row" style="justify-content:center"><button class="btn primary" id="retry">Retry search</button><button class="btn" id="openStatus">Open status</button></div>
+    </div>`;
+    $("#retry").addEventListener("click", () => runSearch(ui.lastQuery));
+    $("#openStatus").addEventListener("click", openDrawer);
+  }
+
+  // ---------- evidence ----------
+  async function selectMoment(id) {
+    ui.selectedId = id;
+    $$(".card").forEach((el) => el.classList.toggle("selected", el.dataset.id === id));
+    const local = ui.results.find((m) => m.id === id);
+    if (local) renderEvidence(local);
+    if (window.innerWidth <= 1180) $("#evidence").scrollIntoView({ behavior: "smooth", block: "start" });
+    try {
+      const { moment } = await ScoutAPI.getMoment(id);
+      if (ui.selectedId === id) renderEvidence({ ...local, ...moment });
+    } catch (e) {
+      if (!local) renderEvidence(null, e);
+    }
+  }
+
+  function provenanceLabel(p) {
+    if (!p) return "provenance not reported";
+    if (p.source === "fixture") return "Demo fixture · no sponsor calls";
+    const parts = [p.source && `search: ${p.source}`, p.detection ? `detection: ${p.detection}` : "no detection", p.analysis && `analysis: ${p.analysis}`].filter(Boolean);
+    return parts.join(" · ");
+  }
+
+  function renderEvidence(m, err) {
+    const ev = $("#evidence");
+    if (!m) {
+      ev.innerHTML = `<div class="ev-empty"><h3>Couldn’t load this moment</h3>${esc(err?.message || "")}</div>`;
+      return;
+    }
+    const unread = m.readability === "unreadable";
+    const sameClip = ui.results.filter((x) => x.clip_id === m.clip_id).sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
+    const span = Math.max(...sameClip.map((x) => x.timestamp_seconds), m.timestamp_seconds) + 30;
+    const saved = ui.saved.has(m.id);
+    const b = m.bounding_box;
+    const hasBox = !!b;
+    const boxHTML = hasBox && ui.showBox ? `<div class="bbox" style="left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%"></div>` : "";
+
+    ev.innerHTML = `
+      <div class="player" id="player">
+        <div class="wrap">
+          ${m.video_url
+            ? `<video id="vid" src="${esc(m.video_url)}" controls playsinline preload="metadata"></video>`
+            : frameImg(m)}
+          ${boxHTML}
+        </div>
+        ${!m.frame_url && !m.video_url ? `<span class="stamp">${esc(window.FIXTURES?.label || "Placeholder")}</span>` : ""}
+        <span class="ts">${fmtTs(m.timestamp_seconds)} – ${fmtTs(m.timestamp_seconds + (m.duration || 0))}</span>
+        ${unread ? `<div class="veil">Unreadable footage<br><span class="note">Exposure too low to read clothing details</span></div>` : ""}
+      </div>
+      <div class="timeline">
+        <div class="tl-meta"><span class="mono">${esc(m.clip_id)}</span><span>${sameClip.length} matching moment${sameClip.length === 1 ? "" : "s"} in this clip</span></div>
+        <div class="tl-bar">${sameClip.map((x) => `<button class="mark ${x.id === m.id ? "cur" : ""}" style="left:${(x.timestamp_seconds / span) * 100}%" data-id="${esc(x.id)}" title="${fmtTs(x.timestamp_seconds)}" aria-label="Jump to ${fmtTs(x.timestamp_seconds)}"></button>`).join("")}</div>
+        <div class="tl-meta"><span>00:00</span><span>${m.video_url ? "" : "still frame only — timeline is relative"}</span><span>${fmtTs(span)}</span></div>
+      </div>
+      <div class="ev-body">
+        <div class="ev-head">
+          <div>
+            <h3>${esc(m.collection)} · ${fmtTs(m.timestamp_seconds)}</h3>
+            <div class="sub">${provenanceLabel(m.provenance)}${hasBox ? " · person detected" : " · no detection data"}</div>
+          </div>
+          <span class="pill ${esc(m.readability)}">${READ[m.readability] || esc(m.readability)}</span>
+        </div>
+
+        <label class="toggle"><input type="checkbox" id="boxToggle" ${ui.showBox ? "checked" : ""} ${hasBox ? "" : "disabled"}> ${hasBox ? "Show person bounding box (YOLO)" : "No bounding box — detection data missing for this moment"}</label>
+
+        <div class="ev-sec">
+          <h4>Observed <span class="src">· read clearly from the frame</span></h4>
+          <div class="tags">${m.observed.length ? tagsHTML(m.observed) : `<span class="tag unc">nothing readable</span>`}</div>
+        </div>
+
+        <div class="ev-sec">
+          <h4>Uncertain <span class="src">· may be present, not confirmed</span></h4>
+          ${m.uncertain.length
+            ? `<div class="tags">${m.uncertain.map((d) => `<span class="tag unc"><span class="k">${esc(d.kind)}</span>${esc(d.value)}${d.note ? `<span class="unc-note">${esc(d.note)}</span>` : ""}</span>`).join("")}</div>`
+            : `<span class="note">No uncertain details flagged.</span>`}
+        </div>
+
+        <div class="ev-sec">
+          <h4>Clothing description <span class="src">· Cosmos${m.provenance?.source === "fixture" ? " · fixture text" : ""}</span></h4>
+          <p class="desc">${esc(m.description)}</p>
+        </div>
+
+        ${m.match_reason ? `<div class="ev-sec"><h4>Why it matched</h4><div class="why">${esc(m.match_reason)}</div></div>` : ""}
+
+        <div class="ev-actions">
+          <button class="btn ${saved ? "" : "primary"}" id="saveBtn">${saved ? "Saved ✓ — remove" : "Save to board"}</button>
+          <span class="note">Saves this frame as one observation.</span>
+        </div>
+      </div>`;
+
+    $("#boxToggle")?.addEventListener("change", (e) => { ui.showBox = e.target.checked; renderEvidence(m); });
+    $$(".tl-bar .mark", ev).forEach((bt) => bt.addEventListener("click", () => selectMoment(bt.dataset.id)));
+    $("#saveBtn").addEventListener("click", () => {
+      if (ui.saved.has(m.id)) ui.saved.delete(m.id); else ui.saved.add(m.id);
+      try { localStorage.setItem("scout.saved", JSON.stringify([...ui.saved])); } catch (_) {}
+      $("#savedCount").textContent = ui.saved.size;
+      renderEvidence(m);
+    });
+    const vid = $("#vid");
+    if (vid) vid.addEventListener("loadedmetadata", () => { vid.currentTime = m.timestamp_seconds; }, { once: true });
+  }
+
+  // ---------- search ----------
+  let searchSeq = 0;
+  async function runSearch(query) {
+    query = (query ?? $("#q").value).trim();
+    $("#q").value = query;
+    ui.lastQuery = query;
+    const seq = ++searchSeq;
+    $("#searchBtn").disabled = true;
+    renderSkeleton();
+    try {
+      const { results } = await ScoutAPI.search(query, ui.dataset);
+      if (seq !== searchSeq) return;
+      ui.results = results;
+      if (!results.some((m) => m.id === ui.selectedId)) { ui.selectedId = null; $("#evidence").innerHTML = `<div class="ev-empty"><h3>No moment selected</h3>Click a result to open it here.</div>`; }
+      renderResults();
+    } catch (e) {
+      if (seq !== searchSeq) return;
+      ui.results = [];
+      ui.selectedId = null;
+      $("#evidence").innerHTML = `<div class="ev-empty"><h3>No moment selected</h3>Retry the search, then click a result.</div>`;
+      renderError(e);
+    } finally {
+      if (seq === searchSeq) $("#searchBtn").disabled = false;
+    }
+  }
+
+  function setDataset(v) {
+    ui.dataset = v;
+    $$("#dataset button").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.v === v)));
+  }
+
+  $("#searchForm").addEventListener("submit", (e) => { e.preventDefault(); runSearch(); });
+  $$("#dataset button").forEach((b) => b.addEventListener("click", () => { setDataset(b.dataset.v); if (ui.lastQuery || ui.results.length) runSearch(ui.lastQuery); }));
+  $$("#chips .chip").forEach((c) => c.addEventListener("click", () => runSearch(c.textContent)));
+  $("#savedCount").textContent = ui.saved.size;
+
+  // ---------- drawer ----------
+  const drawer = $("#drawer"), scrim = $("#scrim");
+  function openDrawer() { drawer.classList.add("open"); scrim.classList.add("open"); }
+  function closeDrawer() { drawer.classList.remove("open"); scrim.classList.remove("open"); }
+  $("#debugBtn").addEventListener("click", openDrawer);
+  $("#drawerClose").addEventListener("click", closeDrawer);
+  scrim.addEventListener("click", closeDrawer);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+  $$("input[name=mode]").forEach((r) => r.addEventListener("change", () => {
+    ScoutAPI.configure({ mode: r.value, baseUrl: $("#baseUrl").value });
+    if (r.value === "live") ScoutAPI.refreshStatus().catch(() => {});
+  }));
+  $("#baseUrl").addEventListener("change", () => ScoutAPI.configure({ baseUrl: $("#baseUrl").value }));
+  $("#refreshStatus").addEventListener("click", () => ScoutAPI.refreshStatus().catch(() => {}));
+  $$("[data-sim]").forEach((c) => c.addEventListener("change", () => ScoutAPI.simulate(c.dataset.sim, c.checked)));
+
+  function renderStatus(s) {
+    const live = s.mode === "live";
+    const badge = $("#modeBadge");
+    badge.textContent = live ? "Live backend" : "Demo fixtures";
+    badge.classList.toggle("live", live);
+    $("#simSec").style.display = live ? "none" : "";
+    $("#modeNote").textContent = live
+      ? `Calling ${s.baseUrl}. Each service shows “ok” only after a successful response from it.`
+      : "Fixture mode never contacts a sponsor service. Nothing below will show “ok” until live calls succeed.";
+    $$("[data-sim]").forEach((c) => { c.checked = !!s.sim[c.dataset.sim]; });
+
+    const anyOk = Object.values(s.services).some((v) => v.state === "ok");
+    const anyErr = Object.values(s.services).some((v) => v.state === "error");
+    $("#statusDot").className = "dot" + (anyOk && !anyErr ? " ok" : "");
+    $("#statusDot").style.background = anyErr ? "var(--red)" : "";
+
+    const order = ["vast", "yolo", "cosmos", "wandb", "coreweave"];
+    const STL = { ok: "ok", error: "error", not_connected: "not connected", unverified: "unverified" };
+    $("#services").innerHTML = order.map((k) => {
+      const v = s.services[k];
+      const when = v.lastCall ? new Date(v.lastCall).toLocaleTimeString() : "";
+      return `<div class="svc">
+        <span class="name">${esc(s.labels[k])}</span>
+        <span class="st ${esc(v.state)}">${STL[v.state] || esc(v.state)}</span>
+        <span class="detail">${esc(v.detail || "")}${v.ms != null ? ` · ${v.ms} ms` : ""}${when ? ` · ${when}` : ""}</span>
+      </div>`;
+    }).join("");
+
+    $("#log").innerHTML = s.log.length
+      ? s.log.map((e) => `<span class="${e.ok ? "ok" : "bad"}">${new Date(e.t).toLocaleTimeString()} ${esc(e.mode)}/${esc(e.op)} ${e.ok ? "ok" : "fail"}${e.ms != null ? ` ${e.ms}ms` : ""} — <span style="color:var(--faint)">${esc(e.detail)}</span></span>`).join("")
+      : "<span>No requests yet.</span>";
+  }
+  ScoutAPI.onChange(renderStatus);
+  renderStatus(ScoutAPI.snapshot());
+})();
+</script>
+</body>
+</html>

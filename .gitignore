@@ -1,0 +1,47 @@
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*credentials*.json
+*secrets*.json
+
+# Python and JavaScript caches / environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+node_modules/
+.next/
+dist/
+build/
+.cache/
+
+# Local editor and assistant configuration
+.DS_Store
+.claude/
+.codex/
+.agents/
+
+# Private notes, reports, screenshots, and raw workshop media
+TASKS.md
+private/
+notes/
+reports/
+screenshots/
+inspiration/
+media/
+videos/
+frames/
+*.mp4
+*.mov
+*.m4v
+*.webm
+*.avi
+*.mkv

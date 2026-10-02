@@ -1,0 +1,19 @@
+[project]
+name = "streetstyle-scout"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "httpx",
+    "pydantic>=2",
+    "uvicorn",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
