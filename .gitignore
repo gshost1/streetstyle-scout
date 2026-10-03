@@ -55,3 +55,6 @@ vm-demo/data/
 *.tar
 *.tar.gz
 *.tgz
+
+# Style board storage (local state)
+data/

@@ -207,6 +207,31 @@
   .log .bad { color: var(--red); }
   .credits { font-size: 13px; color: var(--muted); line-height: 1.5; }
   .credits b { color: var(--text); font-weight: 500; }
+
+  /* ---------- style board ---------- */
+  .drawer.left { left: 0; right: auto; width: 520px; border-left: 0; border-right: 1px solid var(--border); transform: translateX(-100%); }
+  .drawer.left.open { transform: none; }
+  .bd-title { flex: 1; background: transparent; border: 0; border-bottom: 1px dashed var(--border); font-size: 16px; font-weight: 600; padding: 4px 0; outline: 0; min-width: 0; }
+  .bd-title:focus { border-bottom-color: var(--accent); }
+  .summary { color: var(--muted); font-size: 13px; margin: 0; }
+  .grp { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .grp-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--surface-2); font-size: 13.5px; }
+  .grp-head b { font-weight: 600; }
+  .grp-head .cnt { color: var(--accent); font-family: var(--mono); font-size: 12px; }
+  .thumbs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; padding: 8px; }
+  .thumb-btn { position: relative; aspect-ratio: 16/9; background: #0f1012; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; padding: 0; }
+  .thumb-btn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumb-btn .ts { position: absolute; left: 5px; bottom: 5px; background: rgba(0,0,0,.7); padding: 1px 5px; border-radius: 4px; font-family: var(--mono); font-size: 10.5px; }
+  .thumb-btn .rm { position: absolute; right: 4px; top: 4px; background: rgba(0,0,0,.7); border: 0; color: var(--muted); border-radius: 4px; font-size: 11px; padding: 1px 5px; cursor: pointer; }
+  .bars { display: flex; flex-direction: column; gap: 6px; }
+  .bar { display: grid; grid-template-columns: 120px 1fr 28px; gap: 8px; align-items: center; font-size: 12.5px; }
+  .bar .lbl { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .bar .trk { height: 8px; background: var(--surface-2); border-radius: 4px; overflow: hidden; }
+  .bar .fill { height: 100%; background: var(--accent); border-radius: 4px; }
+  .bar .n { font-family: var(--mono); font-size: 11.5px; color: var(--muted); text-align: right; }
+  .kind-tabs { display: flex; gap: 6px; }
+  .kind-tabs .chip[aria-pressed="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+  .warn { font-size: 12px; color: var(--amber); border: 1px solid rgba(245,185,68,.4); background: rgba(245,185,68,.08); border-radius: 8px; padding: 8px 10px; }
 </style>
 </head>
 <body>
@@ -219,7 +244,7 @@
   <div class="top-right">
     <span class="badge scope">VAST workshop footage only</span>
     <span class="badge mode live" id="modeBadge">Live backend</span>
-    <button class="btn ghost" id="savedBtn" title="Style board not built yet — saves are kept for it">Saved · <span id="savedCount">0</span></button>
+    <button class="btn ghost" id="savedBtn" title="Open the style board">Board · <span id="savedCount">0</span></button>
     <button class="btn" id="debugBtn"><span class="dot" id="statusDot"></span>Status</button>
   </div>
 </header>
@@ -232,21 +257,20 @@
     </label>
     <div class="seg" role="radiogroup" aria-label="Dataset" id="dataset">
       <button type="button" role="radio" aria-checked="true" data-v="sf">San Francisco</button>
-      <button type="button" role="radio" aria-checked="false" data-v="to" title="Toronto footage: pedestrians are mostly distant, so clothing detail is limited">Toronto</button>
-      <button type="button" role="radio" aria-checked="false" data-v="both">Both</button>
     </div>
     <button class="btn primary" type="submit" id="searchBtn">Search</button>
   </form>
   <div class="chips" id="chips">
     <span class="lbl">Try:</span>
-    <button type="button" class="chip">bright jackets and backpacks</button>
     <button type="button" class="chip">red jacket</button>
-    <button type="button" class="chip">rain gear</button>
-    <button type="button" class="chip">green vest with helmet</button>
-    <button type="button" class="chip">tote bag</button>
+    <button type="button" class="chip">backpack</button>
+    <button type="button" class="chip">pink skirt</button>
+    <button type="button" class="chip">plaid shirt</button>
+    <button type="button" class="chip">white top</button>
+    <button type="button" class="chip">cap</button>
     <button type="button" class="chip">purple raincoat</button>
   </div>
-  <p class="scope-note">Searches <b>visible clothing only</b> in the VAST workshop archive. San Francisco is the primary set; Toronto pedestrians are mostly distant, so detail there is limited. Example chips are suggestions, not proof of matching footage. No face recognition, identity tracking, brand guesses or demographic labels.</p>
+  <p class="scope-note">Searches <b>visible clothing only</b> in the VAST workshop archive, San Francisco street camera. Example chips are suggestions, not proof of matching footage. No face recognition, identity tracking, brand guesses or demographic labels.</p>
 </section>
 
 <main class="layout">
@@ -277,6 +301,30 @@
 </footer>
 
 <div class="scrim" id="scrim"></div>
+<aside class="drawer left" id="board" aria-label="Style board">
+  <div class="dr-head">
+    <input class="bd-title" id="boardTitle" value="Style board" aria-label="Board title" maxlength="120">
+    <button class="btn ghost" id="boardClose">Close</button>
+  </div>
+  <div class="dr-body">
+    <p class="summary" id="boardSummary">No observations saved yet.</p>
+    <div class="warn">Counts are <b>saved observations</b> in human-reviewed workshop footage — not unique people, not a sample of the city, not a trend.</div>
+    <div class="dr-sec">
+      <h4>Saved observations · group by</h4>
+      <div class="kind-tabs" id="kindTabs">
+        <button type="button" class="chip" data-kind="color" aria-pressed="true">color</button>
+        <button type="button" class="chip" data-kind="garment" aria-pressed="false">garment</button>
+        <button type="button" class="chip" data-kind="accessory" aria-pressed="false">accessory</button>
+      </div>
+      <div id="boardGroups" style="display:flex;flex-direction:column;gap:10px;margin-top:10px"></div>
+    </div>
+    <div class="dr-sec">
+      <h4>Most observed across all reviewed footage</h4>
+      <p class="note" id="statsNote"></p>
+      <div id="boardStats"></div>
+    </div>
+  </div>
+</aside>
 <aside class="drawer" id="drawer" aria-label="Sponsor and debug status">
   <div class="dr-head">
     <h2>Services &amp; debug</h2>
@@ -384,10 +432,8 @@
       meta.textContent = "";
       body.innerHTML = `<div class="state">
         <h3>No matching moments</h3>
-        <p>Nothing in the ${datasetLabel()} footage matched “${esc(ui.lastQuery)}”. Try a simpler description — one garment, one color — or search both cities.</p>
-        <button class="btn" id="retryBoth">Search both cities</button>
+        <p>Nothing in the ${datasetLabel()} footage matched “${esc(ui.lastQuery)}”. Try a simpler description — one garment, one color.</p>
       </div>`;
-      $("#retryBoth")?.addEventListener("click", () => { setDataset("both"); runSearch(ui.lastQuery); });
       return;
     }
     const unreadable = ui.results.filter((m) => m.readability === "unreadable").length;
@@ -467,9 +513,11 @@
     const sameClip = ui.results.filter((x) => x.clip_id === m.clip_id).sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
     const span = Math.max(...sameClip.map((x) => x.timestamp_seconds), m.timestamp_seconds) + 30;
     const saved = ui.saved.has(m.id);
-    const b = m.bounding_box;
+    const track = Array.isArray(m.track) && m.track.length ? m.track : null;
+    const nearest = (t) => { let best = null, bd = Infinity; for (const s of track) { const d = Math.abs(s.t - t); if (d < bd) { bd = d; best = s; } } return bd <= 0.25 ? best : null; };
+    const b = m.bounding_box || (track ? nearest(m.timestamp_seconds) : null);
     const hasBox = !!b;
-    const boxHTML = hasBox && ui.showBox ? `<div class="bbox" style="left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%"></div>` : "";
+    const boxHTML = hasBox && ui.showBox ? `<div class="bbox" id="evBox" style="left:${b.x * 100}%;top:${b.y * 100}%;width:${b.w * 100}%;height:${b.h * 100}%"></div>` : "";
 
     ev.innerHTML = `
       <div class="player" id="player">
@@ -497,7 +545,7 @@
           <span class="pill ${esc(m.readability)}">${READ[m.readability] || esc(m.readability)}</span>
         </div>
 
-        <label class="toggle"><input type="checkbox" id="boxToggle" ${ui.showBox ? "checked" : ""} ${hasBox ? "" : "disabled"}> ${hasBox ? "Show person bounding box (YOLO)" : "No bounding box — detection data missing for this moment"}</label>
+        <label class="toggle"><input type="checkbox" id="boxToggle" ${ui.showBox ? "checked" : ""} ${hasBox ? "" : "disabled"}> ${hasBox ? (track ? "Show person box (YOLOv8n, offline run) — follows this person within this clip only" : "Show person bounding box (YOLO)") : "No bounding box — detection data missing for this moment"}</label>
 
         <div class="ev-sec">
           <h4>Observed <span class="src">· read clearly from the frame</span></h4>
@@ -512,7 +560,7 @@
         </div>
 
         <div class="ev-sec">
-          <h4>Clothing description <span class="src">· Cosmos${m.provenance?.source === "fixture" ? " · fixture text" : ""}</span></h4>
+          <h4>Clothing description <span class="src">· ${({ cosmos: "Cosmos", human_review: "human review from the frame", fixture: "fixture text" })[m.provenance?.analysis || (m.provenance?.source === "fixture" ? "fixture" : "")] || "analysis source not reported"}</span></h4>
           <p class="desc">${esc(m.description)}</p>
         </div>
 
@@ -526,14 +574,25 @@
 
     $("#boxToggle")?.addEventListener("change", (e) => { ui.showBox = e.target.checked; renderEvidence(m); });
     $$(".tl-bar .mark", ev).forEach((bt) => bt.addEventListener("click", () => selectMoment(bt.dataset.id)));
-    $("#saveBtn").addEventListener("click", () => {
-      if (ui.saved.has(m.id)) ui.saved.delete(m.id); else ui.saved.add(m.id);
-      try { localStorage.setItem("scout.saved", JSON.stringify([...ui.saved])); } catch (_) {}
-      $("#savedCount").textContent = ui.saved.size;
-      renderEvidence(m);
+    $("#saveBtn").addEventListener("click", async () => {
+      await toggleSave(m.id);
+      if (ui.selectedId === m.id) renderEvidence(m);
     });
     const vid = $("#vid");
     if (vid) vid.addEventListener("loadedmetadata", () => { vid.currentTime = m.timestamp_seconds; }, { once: true });
+    if (vid && track && ui.showBox) {
+      // Move the box with the clip's own detections; hide it when the person is not detected at that time.
+      const box = $("#evBox");
+      const tick = () => {
+        if (!box) return;
+        const s = nearest(vid.currentTime);
+        if (s) { box.style.display = ""; box.style.left = s.x * 100 + "%"; box.style.top = s.y * 100 + "%"; box.style.width = s.w * 100 + "%"; box.style.height = s.h * 100 + "%"; }
+        else box.style.display = "none";
+        if (!vid.paused && !vid.ended) requestAnimationFrame(tick);
+      };
+      vid.addEventListener("play", () => requestAnimationFrame(tick));
+      vid.addEventListener("seeked", tick);
+    }
   }
 
   // ---------- search ----------
@@ -572,10 +631,97 @@
   $$("#chips .chip").forEach((c) => c.addEventListener("click", () => runSearch(c.textContent)));
   $("#savedCount").textContent = ui.saved.size;
 
+  // ---------- style board ----------
+  const NOTE = "Counts are saved observations in human-reviewed workshop footage: not unique people, not a sample of a city, not a trend.";
+  const bd = { title: "Style board", moments: [], tallies: null, summary: "", stats: null, groupBy: "color" };
+  const isLive = () => ScoutAPI.snapshot().mode === "live";
+
+  function tallyLocal(list) {
+    const by = { garment: {}, color: {}, accessory: {} };
+    for (const m of list) for (const d of m.observed) by[d.kind][d.value] = (by[d.kind][d.value] || 0) + 1;
+    const by_kind = {};
+    for (const k in by) by_kind[k] = Object.entries(by[k]).map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+    return { observations: list.length, clips: new Set(list.map((m) => m.clip_id)).size, by_kind, note: NOTE };
+  }
+  function summarizeLocal(list) {
+    if (!list.length) return "No observations saved yet.";
+    const t = tallyLocal(list);
+    const parts = [["color", "colors"], ["garment", "garments"], ["accessory", "accessories"]]
+      .map(([k, label]) => { const top = t.by_kind[k].slice(0, 3); return top.length ? `${label}: ${top.map((r) => `${r.value} (${r.count})`).join(", ")}` : ""; })
+      .filter(Boolean);
+    return `${t.observations} saved observation${t.observations === 1 ? "" : "s"} from ${t.clips} clip${t.clips === 1 ? "" : "s"}. Most saved ${parts.join("; ")}. ${NOTE}`;
+  }
+  function localBoardPayload() {
+    const all = (window.FIXTURES?.moments || []).map((m) => ({ ...m, provenance: { source: "fixture" } }));
+    const ms = all.filter((m) => ui.saved.has(m.id));
+    return { title: bd.title, moments: ms, tallies: tallyLocal(ms), summary: summarizeLocal(ms), stats: tallyLocal(all) };
+  }
+  function applyBoard(b, stats) {
+    bd.title = b.title; bd.moments = b.moments; bd.tallies = b.tallies; bd.summary = b.summary; bd.stats = stats || b.stats || bd.stats;
+    ui.saved = new Set(b.moments.map((m) => m.id));
+    try { localStorage.setItem("scout.saved", JSON.stringify([...ui.saved])); } catch (_) {}
+    $("#savedCount").textContent = ui.saved.size;
+    renderBoard();
+  }
+  async function refreshBoard() {
+    if (isLive()) {
+      try { const b = await ScoutAPI.board("get"); const s = await ScoutAPI.board("stats"); applyBoard(b, s); }
+      catch (e) { $("#boardSummary").textContent = "Board unavailable: " + (e.message || "backend error"); }
+    } else applyBoard(localBoardPayload());
+  }
+  async function toggleSave(id) {
+    const has = ui.saved.has(id);
+    if (isLive()) {
+      try { const b = await ScoutAPI.board(has ? "remove" : "add", id); applyBoard(b); }
+      catch (e) { $("#resultsMeta").textContent = "Could not save: " + (e.message || "backend error"); }
+    } else {
+      if (has) ui.saved.delete(id); else ui.saved.add(id);
+      applyBoard(localBoardPayload());
+    }
+  }
+  function renderBoard() {
+    $("#boardTitle").value = bd.title;
+    $("#boardSummary").textContent = bd.summary;
+    $$("#kindTabs .chip").forEach((c) => c.setAttribute("aria-pressed", String(c.dataset.kind === bd.groupBy)));
+    const groups = {};
+    for (const m of bd.moments) for (const d of m.observed) if (d.kind === bd.groupBy) (groups[d.value] = groups[d.value] || []).push(m);
+    const entries = Object.entries(groups).sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+    $("#boardGroups").innerHTML = entries.length
+      ? entries.map(([value, ms]) => `<div class="grp">
+          <div class="grp-head"><b>${esc(value)}</b><span class="cnt">${ms.length} observation${ms.length === 1 ? "" : "s"}</span></div>
+          <div class="thumbs">${ms.map((m) => `<button class="thumb-btn" data-id="${esc(m.id)}" title="Open in evidence panel">${frameImg(m)}<span class="ts">${fmtTs(m.timestamp_seconds)}</span><span class="rm" data-rm="${esc(m.id)}" title="Remove from board">×</span></button>`).join("")}</div>
+        </div>`).join("")
+      : `<span class="note">Nothing saved yet. Open a moment and press “Save to board”.</span>`;
+    $$("#boardGroups .thumb-btn").forEach((b) => b.addEventListener("click", (e) => {
+      if (e.target.dataset.rm) { e.stopPropagation(); toggleSave(e.target.dataset.rm); return; }
+      closeBoard();
+      const id = b.dataset.id;
+      const local = bd.moments.find((m) => m.id === id);
+      if (local) { ui.results = ui.results.some((m) => m.id === id) ? ui.results : [local, ...ui.results]; renderResults(); }
+      selectMoment(id);
+    }));
+    const st = bd.stats;
+    $("#statsNote").textContent = st ? `${st.observations} reviewed observations across ${st.clips} clips. Observed details only; uncertain details are never counted.` : "";
+    $("#boardStats").innerHTML = st ? ["color", "garment", "accessory"].map((k) => {
+      const rows = st.by_kind[k].slice(0, 6); const max = rows[0]?.count || 1;
+      return `<div class="dr-sec" style="margin-top:10px"><h4>${k}</h4><div class="bars">${rows.map((r) => `<div class="bar"><span class="lbl">${esc(r.value)}</span><span class="trk"><span class="fill" style="width:${(r.count / max) * 100}%"></span></span><span class="n">${r.count}</span></div>`).join("") || "<span class='note'>none</span>"}</div></div>`;
+    }).join("") : "";
+  }
+  const boardEl = $("#board");
+  function openBoard() { refreshBoard(); boardEl.classList.add("open"); $("#scrim").classList.add("open"); }
+  function closeBoard() { boardEl.classList.remove("open"); $("#scrim").classList.remove("open"); }
+  $("#savedBtn").addEventListener("click", openBoard);
+  $("#boardClose").addEventListener("click", closeBoard);
+  $$("#kindTabs .chip").forEach((c) => c.addEventListener("click", () => { bd.groupBy = c.dataset.kind; renderBoard(); }));
+  $("#boardTitle").addEventListener("change", async (e) => {
+    const v = e.target.value.trim() || "Style board";
+    if (isLive()) { try { applyBoard(await ScoutAPI.board("title", v)); } catch (_) {} } else { bd.title = v; renderBoard(); }
+  });
+
   // ---------- drawer ----------
   const drawer = $("#drawer"), scrim = $("#scrim");
   function openDrawer() { drawer.classList.add("open"); scrim.classList.add("open"); }
-  function closeDrawer() { drawer.classList.remove("open"); scrim.classList.remove("open"); }
+  function closeDrawer() { drawer.classList.remove("open"); scrim.classList.remove("open"); closeBoard(); }
   $("#debugBtn").addEventListener("click", openDrawer);
   $("#drawerClose").addEventListener("click", closeDrawer);
   scrim.addEventListener("click", closeDrawer);
@@ -623,6 +769,7 @@
   }
   ScoutAPI.onChange(renderStatus);
   renderStatus(ScoutAPI.snapshot());
+  refreshBoard();
   ScoutAPI.refreshStatus().catch(() => {});
 })();
 </script>

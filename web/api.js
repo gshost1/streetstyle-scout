@@ -253,5 +253,17 @@ window.ScoutAPI = (() => {
     return snapshot();
   }
 
-  return { search, getMoment, refreshStatus, configure, simulate, onChange, snapshot };
+  // Style board (live mode only; fixture mode keeps the board in the page).
+  async function board(op, payload) {
+    if (state.mode === "fixture") return null;
+    const json = (body) => ({ headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (op === "get") return liveFetch("/board", {}, "board");
+    if (op === "stats") return liveFetch("/stats", {}, "stats");
+    if (op === "add") return liveFetch("/board", { method: "POST", ...json({ moment_id: payload }) }, "board");
+    if (op === "remove") return liveFetch("/board/" + encodeURIComponent(payload), { method: "DELETE" }, "board");
+    if (op === "title") return liveFetch("/board/title", { method: "PUT", ...json({ title: payload }) }, "board");
+    throw new Error("unknown board op " + op);
+  }
+
+  return { search, getMoment, refreshStatus, configure, simulate, onChange, snapshot, board };
 })();

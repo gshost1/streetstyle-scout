@@ -67,6 +67,11 @@ class BoundingBox(StrictModel):
         return self
 
 
+class TrackSample(BoundingBox):
+    t: float = Field(ge=0)
+    conf: float | None = Field(default=None, ge=0, le=1)
+
+
 class ObservedDetail(StrictModel):
     kind: Literal["garment", "color", "accessory"]
     value: str = Field(min_length=1)
@@ -79,7 +84,7 @@ class UncertainDetail(ObservedDetail):
 class Provenance(StrictModel):
     source: Literal["vast"]
     detection: Literal["yolo"] | None
-    analysis: Literal["cosmos"]
+    analysis: Literal["cosmos", "human_review"]  # human_review = described by a person from the frame, not by Cosmos
 
 
 class Moment(StrictModel):
@@ -91,6 +96,9 @@ class Moment(StrictModel):
     frame_url: str | None
     video_url: str | None
     bounding_box: BoundingBox | None
+    # Optional in-clip localization track for the reviewed person: boxes over time within THIS clip
+    # only. Never links people across clips.
+    track: list[TrackSample] | None = None
     readability: Literal["clear", "partial", "unreadable"]
     observed: list[ObservedDetail]
     uncertain: list[UncertainDetail]
@@ -123,7 +131,7 @@ def not_connected_services(catalog_loaded: bool = False) -> dict[str, dict[str, 
     )
     return {
         "vast": {"state": "not_connected", "detail": vast_detail},
-        "yolo": {"state": "not_connected", "detail": "No live detection call made"},
+        "yolo": {"state": "not_connected", "detail": "No live detection call made; any boxes shown were precomputed offline with YOLOv8n on this machine"},
         "cosmos": {"state": "not_connected", "detail": "No live analysis call made"},
         "wandb": {"state": "not_connected", "detail": "No live logging call made"},
     }
@@ -365,6 +373,146 @@ def clip(clip_id: str, request: Request):
         headers=headers,
         media_type=media_type,
     )
+
+
+# ---------------------------------------------------------------------------
+# Style board: persisted saved observations + honest tallies.
+# Counts are saved observations in reviewed footage. They are not unique people
+# (one person can be saved from several moments) and not a citywide trend.
+# ---------------------------------------------------------------------------
+from datetime import datetime, timezone
+
+BOARD_PATH = Path(os.getenv("SCOUT_BOARD_PATH", ROOT / "data" / "board.json"))
+BOARD_SCOPE_NOTE = (
+    "Counts are saved observations in human-reviewed workshop footage: not unique people, "
+    "not a sample of a city, not a trend."
+)
+
+
+class SaveRequest(StrictModel):
+    moment_id: str = Field(min_length=1)
+
+
+class TitleRequest(StrictModel):
+    title: str = Field(min_length=1, max_length=120)
+
+
+def load_board() -> dict:
+    if BOARD_PATH.is_file():
+        try:
+            data = json.loads(BOARD_PATH.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and isinstance(data.get("saved"), list):
+                data.setdefault("title", "Style board")
+                return data
+        except (OSError, json.JSONDecodeError):
+            pass
+    return {"title": "Style board", "saved": []}
+
+
+def save_board(board: dict) -> None:
+    BOARD_PATH.parent.mkdir(parents=True, exist_ok=True)
+    BOARD_PATH.write_text(json.dumps(board, indent=2), encoding="utf-8")
+
+
+def tally(moments: list[Moment]) -> dict:
+    counts: dict[str, dict[str, int]] = {"garment": {}, "color": {}, "accessory": {}}
+    for m in moments:
+        for detail in m.observed:  # observed only; uncertain details are never counted
+            bucket = counts[detail.kind]
+            bucket[detail.value] = bucket.get(detail.value, 0) + 1
+    ranked = {
+        kind: sorted(({"value": v, "count": c} for v, c in bucket.items()), key=lambda r: (-r["count"], r["value"]))
+        for kind, bucket in counts.items()
+    }
+    return {
+        "observations": len(moments),
+        "clips": len({m.clip_id for m in moments}),
+        "by_kind": ranked,
+        "note": BOARD_SCOPE_NOTE,
+    }
+
+
+def summarize(moments: list[Moment]) -> str:
+    if not moments:
+        return "No observations saved yet."
+    t = tally(moments)
+    parts = []
+    for kind, label in (("color", "colors"), ("garment", "garments"), ("accessory", "accessories")):
+        top = t["by_kind"][kind][:3]
+        if top:
+            parts.append(label + ": " + ", ".join(f"{r['value']} ({r['count']})" for r in top))
+    return (
+        f"{t['observations']} saved observation{'s' if t['observations'] != 1 else ''} from {t['clips']} clip"
+        f"{'s' if t['clips'] != 1 else ''}. Most saved " + "; ".join(parts) + ". " + BOARD_SCOPE_NOTE
+    )
+
+
+def board_payload(board: dict, moments: tuple[Moment, ...] | None) -> dict:
+    by_id = {m.id: m for m in (moments or ())}
+    saved_moments = [by_id[s["moment_id"]] for s in board["saved"] if s["moment_id"] in by_id]
+    return {
+        "title": board["title"],
+        "saved": board["saved"],
+        "moments": [m.model_dump(mode="json") for m in saved_moments],
+        "tallies": tally(saved_moments),
+        "summary": summarize(saved_moments),
+    }
+
+
+def _catalog_or_error():
+    try:
+        return current_catalog(), None
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return None, service_error("The local moment catalog is invalid", str(exc), 500)
+
+
+@app.get("/api/board")
+def get_board():
+    moments, err = _catalog_or_error()
+    return err or board_payload(load_board(), moments)
+
+
+@app.post("/api/board")
+def add_to_board(body: SaveRequest):
+    moments, err = _catalog_or_error()
+    if err:
+        return err
+    if not moments or not any(m.id == body.moment_id for m in moments):
+        return JSONResponse(status_code=404, content={"error": "not_found", "message": f"No moment {body.moment_id}"})
+    board = load_board()
+    if not any(s["moment_id"] == body.moment_id for s in board["saved"]):
+        board["saved"].append({"moment_id": body.moment_id, "saved_at": datetime.now(timezone.utc).isoformat()})
+        save_board(board)
+    return board_payload(board, moments)
+
+
+@app.delete("/api/board/{moment_id}")
+def remove_from_board(moment_id: str):
+    moments, err = _catalog_or_error()
+    if err:
+        return err
+    board = load_board()
+    board["saved"] = [s for s in board["saved"] if s["moment_id"] != moment_id]
+    save_board(board)
+    return board_payload(board, moments)
+
+
+@app.put("/api/board/title")
+def set_board_title(body: TitleRequest):
+    moments, err = _catalog_or_error()
+    if err:
+        return err
+    board = load_board()
+    board["title"] = body.title.strip()
+    save_board(board)
+    return board_payload(board, moments)
+
+
+@app.get("/api/stats")
+def get_stats():
+    """Tallies over every reviewed moment in the catalog (observed details only)."""
+    moments, err = _catalog_or_error()
+    return err or tally(list(moments or ()))
 
 
 if (ROOT / "frames").is_dir():
